@@ -33,7 +33,8 @@ app.get("/", (req, res) => {
           <input type="number" id="totalReviews" placeholder="Number of reviews" value="20" required>
           <select id="sortOrder">
             <option value="NEWEST" selected>Newest First</option>
-            <option value="EARLIEST">oldest First</option>
+            <option value="RATING">RATING</option>
+            <option value="HELPFUL">Most Helpful</option>
           </select>
           <input type="text" id="filename" placeholder="CSV Filename" value="reviews.csv" required>
           <button type="submit">Fetch Reviews & Download CSV</button>
@@ -91,8 +92,11 @@ app.post("/fetch-reviews", async (req, res) => {
     const { appId, totalReviews, sortOrder, filename } = req.body;
     const TOTAL_REVIEWS = parseInt(totalReviews, 10);
 
-    // Determine sort order for gplay
-    const SORT_ORDER = sortOrder === "EARLIEST" ? gplay.sort.HELPFUL : gplay.sort.NEWEST;
+    // Map user input to gplay sort constants
+    let SORT_ORDER;
+    if (sortOrder === "NEWEST") SORT_ORDER = gplay.sort.NEWEST;
+    else if (sortOrder === "RATING") SORT_ORDER = gplay.sort.RATING; // earliest not directly available
+    else if (sortOrder === "HELPFUL") SORT_ORDER = gplay.sort.HELPFUL;    // helpful is mapped to rating for example
 
     let allReviews = [];
     let nextToken = null;
@@ -126,7 +130,7 @@ app.post("/fetch-reviews", async (req, res) => {
 
     res.download(filePath, filename, (err) => {
       if (err) console.error(err);
-      fs.unlinkSync(filePath); // remove file after sending
+      fs.unlinkSync(filePath);
     });
   } catch (err) {
     console.error(err);
