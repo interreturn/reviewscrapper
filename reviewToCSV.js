@@ -1,4 +1,4 @@
-﻿// server.js
+// server.js
 import express from "express";
 import fs from "fs";
 import path from "path";
@@ -20,7 +20,7 @@ app.get("/", (req, res) => {
           body { font-family: Arial, sans-serif; padding: 50px; background: #f5f5f5; }
           h1 { text-align: center; }
           form { max-width: 400px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1);}
-          input, button { width: 100%; padding: 10px; margin: 10px 0; font-size: 16px; }
+          input, select, button { width: 100%; padding: 10px; margin: 10px 0; font-size: 16px; }
           button { background: #007BFF; color: #fff; border: none; cursor: pointer; }
           button:hover { background: #0056b3; }
           #status { text-align: center; margin-top: 20px; }
@@ -31,6 +31,10 @@ app.get("/", (req, res) => {
         <form id="reviewForm">
           <input type="text" id="appId" placeholder="App ID (e.g., com.tocaboca.tocalifeworld)" required>
           <input type="number" id="totalReviews" placeholder="Number of reviews" value="20" required>
+          <select id="sortOrder">
+            <option value="NEWEST" selected>Newest First</option>
+            <option value="EARLIEST">oldest First</option>
+          </select>
           <input type="text" id="filename" placeholder="CSV Filename" value="reviews.csv" required>
           <button type="submit">Fetch Reviews & Download CSV</button>
         </form>
@@ -45,6 +49,7 @@ app.get("/", (req, res) => {
 
             const appId = document.getElementById('appId').value;
             const totalReviews = document.getElementById('totalReviews').value;
+            const sortOrder = document.getElementById('sortOrder').value;
             const filename = document.getElementById('filename').value;
 
             statusDiv.textContent = 'Fetching reviews... Please wait.';
@@ -53,12 +58,11 @@ app.get("/", (req, res) => {
               const response = await fetch('/fetch-reviews', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ appId, totalReviews, filename })
+                body: JSON.stringify({ appId, totalReviews, sortOrder, filename })
               });
 
               if (!response.ok) throw new Error('Error fetching reviews');
 
-              // Convert response to blob and download as file
               const blob = await response.blob();
               const url = window.URL.createObjectURL(blob);
               const a = document.createElement('a');
@@ -70,7 +74,6 @@ app.get("/", (req, res) => {
               window.URL.revokeObjectURL(url);
 
               statusDiv.textContent = \`✅ Reviews saved to \${filename}\`;
-
             } catch (err) {
               console.error(err);
               statusDiv.textContent = '❌ Error fetching reviews';
@@ -85,8 +88,11 @@ app.get("/", (req, res) => {
 // POST endpoint to fetch reviews and return CSV
 app.post("/fetch-reviews", async (req, res) => {
   try {
-    const { appId, totalReviews, filename } = req.body;
+    const { appId, totalReviews, sortOrder, filename } = req.body;
     const TOTAL_REVIEWS = parseInt(totalReviews, 10);
+
+    // Determine sort order for gplay
+    const SORT_ORDER = sortOrder === "EARLIEST" ? gplay.sort.HELPFUL : gplay.sort.NEWEST;
 
     let allReviews = [];
     let nextToken = null;
@@ -95,6 +101,7 @@ app.post("/fetch-reviews", async (req, res) => {
     do {
       const page = await gplay.reviews({
         appId,
+        sort: SORT_ORDER,
         paginate: true,
         nextPaginationToken: nextToken
       });
@@ -117,7 +124,6 @@ app.post("/fetch-reviews", async (req, res) => {
     const filePath = path.join(process.cwd(), filename);
     fs.writeFileSync(filePath, csv, "utf8");
 
-    // Send CSV as download
     res.download(filePath, filename, (err) => {
       if (err) console.error(err);
       fs.unlinkSync(filePath); // remove file after sending
@@ -128,9 +134,4 @@ app.post("/fetch-reviews", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
-
+app.listen(process.env.PORT || 3000, () => console.log("Server running on port", process.env.PORT || 3000));
