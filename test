@@ -1,0 +1,52 @@
+import gplay from "google-play-scraper";
+import fs from "fs";
+import { parse } from "json2csv"; // install with: npm install json2csv
+
+// CONFIGURE THIS
+const APP_ID = "com.tocaboca.tocalifeworld";
+const TOTAL_REVIEWS = 20000;        // Total reviews you want
+const SORT_ORDER = gplay.sort.NEWEST; // or gplay.sort.RATING
+const CSV_FILENAME = "reviews.csv";
+
+async function fetchAllReviews() {
+    let allReviews = [];
+    let nextToken = null;
+    let fetchedCount = 0;
+
+    console.log(`Fetching up to ${TOTAL_REVIEWS} reviews for: ${APP_ID}`);
+
+    try {
+        do {
+            const page = await gplay.reviews({
+                appId: APP_ID,
+                sort: SORT_ORDER,
+                paginate: true,
+                nextPaginationToken: nextToken
+            });
+
+            if (page && page.data.length > 0) {
+                allReviews.push(...page.data);
+                fetchedCount += page.data.length;
+                console.log(`Fetched: ${fetchedCount} reviews`);
+            } else {
+                break; // no more reviews
+            }
+
+            nextToken = page.nextPaginationToken;
+
+        } while (nextToken && fetchedCount < TOTAL_REVIEWS);
+
+        // Convert data to CSV
+        const fields = ["userName", "score", "text", "date", "thumbsUp"];
+        const opts = { fields };
+        const csv = parse(allReviews, opts);
+
+        fs.writeFileSync(CSV_FILENAME, csv, "utf8");
+        console.log(`✅ Saved ${allReviews.length} reviews to "${CSV_FILENAME}"`);
+
+    } catch (err) {
+        console.error("❌ Error fetching reviews:", err);
+    }
+}
+
+fetchAllReviews();

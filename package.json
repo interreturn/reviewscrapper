@@ -1,0 +1,17 @@
+{
+  "dependencies": {
+    "express": "^5.1.0",
+    "google-play-scraper": "^10.0.1",
+    "json2csv": "^6.0.0-alpha.2"
+  },
+  "name": "nodetest",
+  "version": "1.0.0",
+  "main": "reviewScrape.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}

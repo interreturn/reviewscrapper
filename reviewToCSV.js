@@ -1,0 +1,131 @@
+﻿// server.js
+import express from "express";
+import fs from "fs";
+import path from "path";
+import { parse } from "json2csv";
+import gplay from "google-play-scraper";
+
+const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Serve dynamic HTML page
+app.get("/", (req, res) => {
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Google Play Reviews to CSV</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 50px; background: #f5f5f5; }
+          h1 { text-align: center; }
+          form { max-width: 400px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1);}
+          input, button { width: 100%; padding: 10px; margin: 10px 0; font-size: 16px; }
+          button { background: #007BFF; color: #fff; border: none; cursor: pointer; }
+          button:hover { background: #0056b3; }
+          #status { text-align: center; margin-top: 20px; }
+        </style>
+      </head>
+      <body>
+        <h1>Google Play Reviews to CSV</h1>
+        <form id="reviewForm">
+          <input type="text" id="appId" placeholder="App ID (e.g., com.tocaboca.tocalifeworld)" required>
+          <input type="number" id="totalReviews" placeholder="Number of reviews" value="20" required>
+          <input type="text" id="filename" placeholder="CSV Filename" value="reviews.csv" required>
+          <button type="submit">Fetch Reviews & Download CSV</button>
+        </form>
+        <div id="status"></div>
+
+        <script>
+          const form = document.getElementById('reviewForm');
+          const statusDiv = document.getElementById('status');
+
+          form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const appId = document.getElementById('appId').value;
+            const totalReviews = document.getElementById('totalReviews').value;
+            const filename = document.getElementById('filename').value;
+
+            statusDiv.textContent = 'Fetching reviews... Please wait.';
+
+            try {
+              const response = await fetch('/fetch-reviews', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ appId, totalReviews, filename })
+              });
+
+              if (!response.ok) throw new Error('Error fetching reviews');
+
+              // Convert response to blob and download as file
+              const blob = await response.blob();
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = filename;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              window.URL.revokeObjectURL(url);
+
+              statusDiv.textContent = \`✅ Reviews saved to \${filename}\`;
+
+            } catch (err) {
+              console.error(err);
+              statusDiv.textContent = '❌ Error fetching reviews';
+            }
+          });
+        </script>
+      </body>
+    </html>
+  `);
+});
+
+// POST endpoint to fetch reviews and return CSV
+app.post("/fetch-reviews", async (req, res) => {
+  try {
+    const { appId, totalReviews, filename } = req.body;
+    const TOTAL_REVIEWS = parseInt(totalReviews, 10);
+
+    let allReviews = [];
+    let nextToken = null;
+    let fetchedCount = 0;
+
+    do {
+      const page = await gplay.reviews({
+        appId,
+        paginate: true,
+        nextPaginationToken: nextToken
+      });
+
+      if (page && page.data.length > 0) {
+        allReviews.push(...page.data);
+        fetchedCount += page.data.length;
+      } else {
+        break;
+      }
+
+      nextToken = page.nextPaginationToken;
+    } while (nextToken && fetchedCount < TOTAL_REVIEWS);
+
+    allReviews = allReviews.slice(0, TOTAL_REVIEWS);
+
+    const fields = ["userName", "score", "text", "date", "thumbsUp"];
+    const csv = parse(allReviews, { fields });
+
+    const filePath = path.join(process.cwd(), filename);
+    fs.writeFileSync(filePath, csv, "utf8");
+
+    // Send CSV as download
+    res.download(filePath, filename, (err) => {
+      if (err) console.error(err);
+      fs.unlinkSync(filePath); // remove file after sending
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("❌ Error fetching reviews");
+  }
+});
+
+app.listen(3000, () => console.log("Server running on http://localhost:3000"));
