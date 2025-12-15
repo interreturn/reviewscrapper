@@ -9,197 +9,133 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-let cachedMonthWise = []; // store last fetched data for viewing
-
-// ================= FRONTEND =================
+// Serve dynamic HTML page
 app.get("/", (req, res) => {
   res.send(`
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Google Play Reviews (Month Wise)</title>
-  <style>
-    body { font-family: Arial; padding: 40px; background:#f4f6f8; }
-    h1 { text-align:center; }
-    form { max-width:420px; margin:auto; background:#fff; padding:20px;
-           border-radius:8px; box-shadow:0 0 10px rgba(0,0,0,.1); }
-    input, select, button {
-      width:100%; padding:10px; margin:10px 0;
-    }
-    button { background:#007BFF; color:#fff; border:none; cursor:pointer; }
-    button:hover { background:#0056b3; }
-    #status { text-align:center; margin-top:15px; }
-    table { width:100%; border-collapse:collapse; margin-top:30px; background:#fff; }
-    th, td { border:1px solid #ddd; padding:8px; font-size:14px; }
-    th { background:#007BFF; color:#fff; }
-    .filter { margin-top:20px; }
-  </style>
-</head>
-<body>
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Google Play Reviews to CSV</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 50px; background: #f5f5f5; }
+          h1 { text-align: center; }
+          form { max-width: 400px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1);}
+          input, select, button { width: 100%; padding: 10px; margin: 10px 0; font-size: 16px; }
+          button { background: #007BFF; color: #fff; border: none; cursor: pointer; }
+          button:hover { background: #0056b3; }
+          #status { text-align: center; margin-top: 20px; }
+        </style>
+      </head>
+      <body>
+        <h1>Google Play Reviews to CSV</h1>
+        <form id="reviewForm">
+          <input type="text" id="appId" placeholder="App ID (e.g., com.tocaboca.tocalifeworld)" required>
+          <input type="number" id="totalReviews" placeholder="Number of reviews" value="20" required>
+          <select id="sortOrder">
+            <option value="NEWEST" selected>Newest First</option>
+            <option value="RATING">RATING</option>
+            <option value="HELPFUL">Most Helpful</option>
+          </select>
+          <input type="text" id="filename" placeholder="CSV Filename" value="reviews.csv" required>
+          <button type="submit">Fetch Reviews & Download CSV</button>
+        </form>
+        <div id="status"></div>
 
-<h1>Google Play Reviews – Month Wise View</h1>
+        <script>
+          const form = document.getElementById('reviewForm');
+          const statusDiv = document.getElementById('status');
 
-<form id="reviewForm">
-  <input id="appId" placeholder="App ID" required>
-  <input id="totalReviews" type="number" value="50" required>
-  <select id="sortOrder">
-    <option value="NEWEST">Newest</option>
-    <option value="RATING">Rating</option>
-    <option value="HELPFUL">Helpful</option>
-  </select>
-  <input id="filename" value="reviews_monthwise.csv">
-  <button type="submit">Fetch Reviews</button>
-</form>
+          form.addEventListener('submit', async (e) => {
+            e.preventDefault();
 
-<div id="status"></div>
+            const appId = document.getElementById('appId').value;
+            const totalReviews = document.getElementById('totalReviews').value;
+            const sortOrder = document.getElementById('sortOrder').value;
+            const filename = document.getElementById('filename').value;
 
-<div class="filter">
-  <label>Filter by Month:</label>
-  <select id="monthFilter">
-    <option value="all">All</option>
-  </select>
-  <button onclick="downloadCSV()">Download CSV</button>
-</div>
+            statusDiv.textContent = 'Fetching reviews... Please wait.';
 
-<table id="reviewTable">
-  <thead>
-    <tr>
-      <th>Month</th>
-      <th>User</th>
-      <th>Rating</th>
-      <th>Date</th>
-      <th>👍</th>
-      <th>Review</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
+            try {
+              const response = await fetch('/fetch-reviews', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ appId, totalReviews, sortOrder, filename })
+              });
 
-<script>
-const form = document.getElementById("reviewForm");
-const statusDiv = document.getElementById("status");
-const tableBody = document.querySelector("#reviewTable tbody");
-const monthFilter = document.getElementById("monthFilter");
-let dataCache = [];
+              if (!response.ok) throw new Error('Error fetching reviews');
 
-form.onsubmit = async (e) => {
-  e.preventDefault();
-  statusDiv.textContent = "Fetching reviews...";
+              const blob = await response.blob();
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = filename;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              window.URL.revokeObjectURL(url);
 
-  const body = {
-    appId: appId.value,
-    totalReviews: totalReviews.value,
-    sortOrder: sortOrder.value,
-    filename: filename.value
-  };
-
-  const res = await fetch("/fetch-reviews", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
-  });
-
-  const data = await res.json();
-  dataCache = data;
-
-  populateMonths(data);
-  renderTable(data);
-  statusDiv.textContent = "✅ Reviews loaded";
-};
-
-function populateMonths(data) {
-  const months = [...new Set(data.map(r => r.Month))];
-  monthFilter.innerHTML = '<option value="all">All</option>';
-  months.forEach(m => {
-    const o = document.createElement("option");
-    o.value = m;
-    o.textContent = m;
-    monthFilter.appendChild(o);
-  });
-}
-
-function renderTable(data) {
-  tableBody.innerHTML = "";
-  data.forEach(r => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = \`
-      <td>\${r.Month}</td>
-      <td>\${r.User}</td>
-      <td>\${r.Rating}</td>
-      <td>\${r.Date}</td>
-      <td>\${r.ThumbsUp}</td>
-      <td>\${r.Review}</td>
-    \`;
-    tableBody.appendChild(tr);
-  });
-}
-
-monthFilter.onchange = () => {
-  const m = monthFilter.value;
-  const filtered = m === "all" ? dataCache : dataCache.filter(r => r.Month === m);
-  renderTable(filtered);
-};
-
-function downloadCSV() {
-  window.location.href = "/download-csv";
-}
-</script>
-
-</body>
-</html>
-`);
+              statusDiv.textContent = \`✅ Reviews saved to \${filename}\`;
+            } catch (err) {
+              console.error(err);
+              statusDiv.textContent = '❌ Error fetching reviews';
+            }
+          });
+        </script>
+      </body>
+    </html>
+  `);
 });
 
-// ================= BACKEND =================
+// POST endpoint to fetch reviews and return CSV
 app.post("/fetch-reviews", async (req, res) => {
-  const { appId, totalReviews, sortOrder } = req.body;
-  const LIMIT = parseInt(totalReviews);
+  try {
+    const { appId, totalReviews, sortOrder, filename } = req.body;
+    const TOTAL_REVIEWS = parseInt(totalReviews, 10);
 
-  const SORT =
-    sortOrder === "RATING" ? gplay.sort.RATING :
-    sortOrder === "HELPFUL" ? gplay.sort.HELPFUL :
-    gplay.sort.NEWEST;
+    // Map user input to gplay sort constants
+    let SORT_ORDER;
+    if (sortOrder === "NEWEST") SORT_ORDER = gplay.sort.NEWEST;
+    else if (sortOrder === "RATING") SORT_ORDER = gplay.sort.RATING; // earliest not directly available
+    else if (sortOrder === "HELPFUL") SORT_ORDER = gplay.sort.HELPFUL;    // helpful is mapped to rating for example
 
-  let reviews = [];
-  let token = null;
+    let allReviews = [];
+    let nextToken = null;
+    let fetchedCount = 0;
 
-  do {
-    const page = await gplay.reviews({
-      appId,
-      sort: SORT,
-      paginate: true,
-      nextPaginationToken: token
+    do {
+      const page = await gplay.reviews({
+        appId,
+        sort: SORT_ORDER,
+        paginate: true,
+        nextPaginationToken: nextToken
+      });
+
+      if (page && page.data.length > 0) {
+        allReviews.push(...page.data);
+        fetchedCount += page.data.length;
+      } else {
+        break;
+      }
+
+      nextToken = page.nextPaginationToken;
+    } while (nextToken && fetchedCount < TOTAL_REVIEWS);
+
+    allReviews = allReviews.slice(0, TOTAL_REVIEWS);
+
+    const fields = ["userName", "score", "text", "date", "thumbsUp"];
+    const csv = parse(allReviews, { fields });
+
+    const filePath = path.join(process.cwd(), filename);
+    fs.writeFileSync(filePath, csv, "utf8");
+
+    res.download(filePath, filename, (err) => {
+      if (err) console.error(err);
+      fs.unlinkSync(filePath);
     });
-    if (!page?.data?.length) break;
-    reviews.push(...page.data);
-    token = page.nextPaginationToken;
-  } while (token && reviews.length < LIMIT);
-
-  reviews = reviews.slice(0, LIMIT);
-
-cachedMonthWise = reviews.map(r => {
-  const d = new Date(r.date);
-
-  return {
-    Month: d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"),
-    User: r.userName,
-    Rating: r.score,
-    Date: d.toISOString().split("T")[0],
-    ThumbsUp: r.thumbsUp,
-    Review: (r.text || "").replace(/\n/g, " ")
-  };
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("❌ Error fetching reviews");
+  }
 });
 
-
-  res.json(cachedMonthWise);
-});
-
-app.get("/download-csv", (req, res) => {
-  const csv = parse(cachedMonthWise);
-  const file = path.join(process.cwd(), "reviews_monthwise.csv");
-  fs.writeFileSync(file, csv);
-  res.download(file, () => fs.unlinkSync(file));
-});
-
-app.listen(3000, () => console.log("✅ Server running on http://localhost:3000"));
-
+app.listen(process.env.PORT || 3000, () => console.log("Server running on port", process.env.PORT || 3000));
