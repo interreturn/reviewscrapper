@@ -1,141 +1,339 @@
 // server.js
 import express from "express";
-import fs from "fs";
-import path from "path";
-import { parse } from "json2csv";
 import gplay from "google-play-scraper";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve dynamic HTML page
+/* ===========================
+   FRONTEND UI
+=========================== */
 app.get("/", (req, res) => {
   res.send(`
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <title>Google Play Reviews to CSV</title>
-        <style>
-          body { font-family: Arial, sans-serif; padding: 50px; background: #f5f5f5; }
-          h1 { text-align: center; }
-          form { max-width: 400px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1);}
-          input, select, button { width: 100%; padding: 10px; margin: 10px 0; font-size: 16px; }
-          button { background: #007BFF; color: #fff; border: none; cursor: pointer; }
-          button:hover { background: #0056b3; }
-          #status { text-align: center; margin-top: 20px; }
-        </style>
-      </head>
-      <body>
-        <h1>Google Play Reviews to CSV</h1>
-        <form id="reviewForm">
-          <input type="text" id="appId" placeholder="App ID (e.g., com.tocaboca.tocalifeworld)" required>
-          <input type="number" id="totalReviews" placeholder="Number of reviews" value="20" required>
-          <select id="sortOrder">
-            <option value="NEWEST" selected>Newest First</option>
-            <option value="RATING">RATING</option>
-            <option value="HELPFUL">Most Helpful</option>
-          </select>
-          <input type="text" id="filename" placeholder="CSV Filename" value="reviews.csv" required>
-          <button type="submit">Fetch Reviews & Download CSV</button>
-        </form>
-        <div id="status"></div>
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Google Play Reviews Analyzer</title>
 
-        <script>
-          const form = document.getElementById('reviewForm');
-          const statusDiv = document.getElementById('status');
+<style>
+body {
+  margin: 0;
+  font-family: "Inter", Arial, sans-serif;
+  background: #eef1f7;
+  padding: 40px 20px;
+}
 
-          form.addEventListener('submit', async (e) => {
-            e.preventDefault();
+.container {
+  max-width: 1050px;
+  margin: auto;
+}
 
-            const appId = document.getElementById('appId').value;
-            const totalReviews = document.getElementById('totalReviews').value;
-            const sortOrder = document.getElementById('sortOrder').value;
-            const filename = document.getElementById('filename').value;
+/* Main Card */
+.card {
+  background: #ffffff;
+  padding: 30px;
+  border-radius: 14px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+  margin-bottom: 25px;
+}
 
-            statusDiv.textContent = 'Fetching reviews... Please wait.';
+h1 {
+  text-align: center;
+  margin-bottom: 25px;
+  font-size: 26px;
+  color: #1f2937;
+}
 
-            try {
-              const response = await fetch('/fetch-reviews', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ appId, totalReviews, sortOrder, filename })
-              });
+/* Form */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px,1fr));
+  gap: 18px;
+}
 
-              if (!response.ok) throw new Error('Error fetching reviews');
+input, select {
+  padding: 12px 14px;
+  font-size: 14px;
+  border-radius: 10px;
+  border: 1px solid #d1d5db;
+}
 
-              const blob = await response.blob();
-              const url = window.URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = filename;
-              document.body.appendChild(a);
-              a.click();
-              a.remove();
-              window.URL.revokeObjectURL(url);
+input:focus, select:focus {
+  outline: none;
+  border-color: #6366f1;
+}
 
-              statusDiv.textContent = \`✅ Reviews saved to \${filename}\`;
-            } catch (err) {
-              console.error(err);
-              statusDiv.textContent = '❌ Error fetching reviews';
-            }
-          });
-        </script>
-      </body>
-    </html>
-  `);
+/* Buttons */
+.actions {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 25px;
+  flex-wrap: wrap;
+}
+
+button {
+  padding: 12px 24px;
+  font-size: 14px;
+  border-radius: 10px;
+  background: #6366f1;
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  transition: 0.2s;
+}
+
+button:hover {
+  background: #4f46e5;
+}
+
+/* Status */
+#status {
+  text-align: center;
+  margin-top: 18px;
+  font-weight: 600;
+  color: #374151;
+}
+
+/* Filter */
+.filter-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 20px 0 12px;
+}
+
+.filter-bar h3 {
+  margin: 0;
+  font-size: 18px;
+  color: #111827;
+}
+
+/* Table */
+table {
+  width: 100%;
+  max-width: 1050px;
+  margin: auto;
+  border-collapse: collapse;
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.05);
+}
+
+th {
+  background: #f9fafb;
+  padding: 14px;
+  font-size: 13px;
+  text-transform: uppercase;
+  color: #6b7280;
+  letter-spacing: 0.04em;
+}
+
+td {
+  padding: 14px;
+  font-size: 14px;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: top;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+.rating {
+  color: #f59e0b;
+  font-weight: 700;
+}
+
+.review-text {
+  max-width: 420px;
+  line-height: 1.5;
+  color: #374151;
+}
+
+/* Mobile */
+@media (max-width: 600px) {
+  h1 { font-size: 22px; }
+  table { font-size: 13px; }
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <div class="card">
+    <h1>Google Play Reviews</h1>
+
+    <div class="form-grid">
+      <input id="appId" placeholder="App ID (com.example.app)">
+      <input id="totalReviews" type="number" value="50">
+      <select id="sortOrder">
+        <option value="NEWEST">Newest</option>
+        <option value="HELPFUL">Helpful</option>
+        <option value="RATING">Rating</option>
+      </select>
+      <input id="filename" value="reviews.csv">
+    </div>
+
+    <div class="actions">
+      <button onclick="fetchReviews()">Fetch Reviews</button>
+      <button onclick="downloadCSV()">Download CSV</button>
+    </div>
+
+    <div id="status"></div>
+  </div>
+
+  <div class="filter-bar">
+    <h3>Reviews</h3>
+    <select id="monthFilter" onchange="renderTable()">
+      <option value="ALL">All Months</option>
+    </select>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Rating</th>
+        <th>Review</th>
+        <th>Month</th>
+      </tr>
+    </thead>
+    <tbody id="reviewBody"></tbody>
+  </table>
+
+</div>
+
+<script>
+let allReviews = [];
+
+async function fetchReviews() {
+  status.innerText = "⏳ Fetching reviews...";
+
+  const res = await fetch("/fetch-reviews", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      appId: appId.value,
+      totalReviews: totalReviews.value,
+      sortOrder: sortOrder.value
+    })
+  });
+
+  const data = await res.json();
+  allReviews = data.reviews || [];
+
+  fillMonths();
+  renderTable();
+
+  status.innerText = "✅ Reviews loaded: " + allReviews.length;
+}
+
+function fillMonths() {
+  monthFilter.innerHTML = '<option value="ALL">All Months</option>';
+  const months = [...new Set(allReviews.map(r => r.month))].sort();
+  months.forEach(m => {
+    monthFilter.innerHTML += '<option value="'+m+'">'+m+'</option>';
+  });
+}
+
+function renderTable() {
+  reviewBody.innerHTML = "";
+  const m = monthFilter.value;
+
+  allReviews
+    .filter(r => m === "ALL" || r.month === m)
+    .forEach(r => {
+      reviewBody.innerHTML +=
+        "<tr>" +
+          "<td>"+r.userName+"</td>" +
+          "<td class='rating'>⭐ "+r.score+"</td>" +
+          "<td class='review-text'>"+(r.text || "-")+"</td>" +
+          "<td>"+r.month+"</td>" +
+        "</tr>";
+    });
+}
+
+function downloadCSV() {
+  let csv = "User,Rating,Review,Month\\n";
+  allReviews.forEach(r => {
+    csv += '"'+r.userName+'",'+r.score+',"'+(r.text||"").replace(/"/g,'""')+'",'+r.month+"\\n";
+  });
+
+  const blob = new Blob([csv], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename.value;
+  a.click();
+}
+</script>
+
+</body>
+</html>
+`);
 });
 
-// POST endpoint to fetch reviews and return CSV
+/* ===========================
+   FETCH REVIEWS API
+=========================== */
 app.post("/fetch-reviews", async (req, res) => {
   try {
-    const { appId, totalReviews, sortOrder, filename } = req.body;
-    const TOTAL_REVIEWS = parseInt(totalReviews, 10);
+    const { appId, totalReviews, sortOrder } = req.body;
+    const LIMIT = parseInt(totalReviews || 50, 10);
 
-    // Map user input to gplay sort constants
-    let SORT_ORDER;
-    if (sortOrder === "NEWEST") SORT_ORDER = gplay.sort.NEWEST;
-    else if (sortOrder === "RATING") SORT_ORDER = gplay.sort.RATING; // earliest not directly available
-    else if (sortOrder === "HELPFUL") SORT_ORDER = gplay.sort.HELPFUL;    // helpful is mapped to rating for example
+    let sort = gplay.sort.NEWEST;
+    if (sortOrder === "HELPFUL") sort = gplay.sort.HELPFUL;
+    if (sortOrder === "RATING") sort = gplay.sort.RATING;
 
-    let allReviews = [];
-    let nextToken = null;
-    let fetchedCount = 0;
+    let reviews = [];
+    let token = null;
 
-    do {
+    while (reviews.length < LIMIT) {
       const page = await gplay.reviews({
         appId,
-        sort: SORT_ORDER,
+        sort,
         paginate: true,
-        nextPaginationToken: nextToken
+        nextPaginationToken: token
       });
 
-      if (page && page.data.length > 0) {
-        allReviews.push(...page.data);
-        fetchedCount += page.data.length;
-      } else {
-        break;
-      }
+      if (!page || !page.data.length) break;
 
-      nextToken = page.nextPaginationToken;
-    } while (nextToken && fetchedCount < TOTAL_REVIEWS);
+      page.data.forEach(r => {
+        const d = new Date(r.date);
+        reviews.push({
+          userName: r.userName,
+          score: r.score,
+          text: r.text,
+          date: r.date,
+          month:
+            d.getFullYear() +
+            "-" +
+            String(d.getMonth() + 1).padStart(2, "0")
+        });
+      });
 
-    allReviews = allReviews.slice(0, TOTAL_REVIEWS);
+      token = page.nextPaginationToken;
+      if (!token) break;
+    }
 
-    const fields = ["userName", "score", "text", "date", "thumbsUp"];
-    const csv = parse(allReviews, { fields });
-
-    const filePath = path.join(process.cwd(), filename);
-    fs.writeFileSync(filePath, csv, "utf8");
-
-    res.download(filePath, filename, (err) => {
-      if (err) console.error(err);
-      fs.unlinkSync(filePath);
-    });
+    res.json({ reviews: reviews.slice(0, LIMIT) });
   } catch (err) {
     console.error(err);
-    res.status(500).send("❌ Error fetching reviews");
+    res.status(500).json({ error: "Failed to fetch reviews" });
   }
 });
 
-app.listen(process.env.PORT || 3000, () => console.log("Server running on port", process.env.PORT || 3000));
+/* ===========================
+   SERVER
+=========================== */
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("Server running on port", PORT);
+});
