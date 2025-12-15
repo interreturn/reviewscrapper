@@ -177,17 +177,19 @@ app.post("/fetch-reviews", async (req, res) => {
 
   reviews = reviews.slice(0, LIMIT);
 
-  cachedMonthWise = reviews.map(r => {
-    const d = new Date(r.date);
-    return {
-      Month: \`\${d.getFullYear()}-\${String(d.getMonth()+1).padStart(2,"0")}\`,
-      User: r.userName,
-      Rating: r.score,
-      Date: d.toISOString().split("T")[0],
-      ThumbsUp: r.thumbsUp,
-      Review: r.text.replace(/\\n/g," ")
-    };
-  });
+cachedMonthWise = reviews.map(r => {
+  const d = new Date(r.date);
+
+  return {
+    Month: d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"),
+    User: r.userName,
+    Rating: r.score,
+    Date: d.toISOString().split("T")[0],
+    ThumbsUp: r.thumbsUp,
+    Review: (r.text || "").replace(/\n/g, " ")
+  };
+});
+
 
   res.json(cachedMonthWise);
 });
@@ -200,3 +202,4 @@ app.get("/download-csv", (req, res) => {
 });
 
 app.listen(3000, () => console.log("✅ Server running on http://localhost:3000"));
+
